@@ -6,17 +6,42 @@ library(terra)
 library(geodata)
 library(dplyr)
 
-# which state is analysed (used for automation of multiple states)
-state <- "Florida 5"
-file_name <- paste0(state, " FIA")
-# path for data extraction
-datapath <- paste0("Data/", file_name, "/FIA_Data")
+# which state is analysed (used for automation of multiple states) is inputted thru args
+args <- commandArgs(trailingOnly = TRUE)
 
+if (length(args) < 2) {
+  stop("Missing state name or state abbreviation.")
+}
 
+state_name <- args[1]
+state_abbr <- args[2]
 
-# readFIA() reads all standard FIA CSV files from the directory
-# (e.g., FL_PLOT.csv, FL_TREE.csv).
-db <- readFIA(dir = datapath, common = FALSE)
+cat("Selected state:", state_name, "\n")
+cat("FIA abbreviation:", state_abbr, "\n")
+
+data_dir <- file.path("Data", paste(state_name, "FIA"))
+
+if (!dir.exists(data_dir) || length(list.files(data_dir)) == 0) {
+  cat("FIA data for", state_name, "not found. Downloading...\n")
+  dir.create(
+    data_dir,
+    recursive = TRUE,
+    showWarnings = FALSE
+  )
+
+  options(timeout = 3600)
+
+  getFIA(
+    states = state_abbr,
+    dir = data_dir,
+    common = FALSE
+  )
+} else {
+  cat("FIA data for", state_name, "found in", data_dir, "\n")
+}
+
+db <- readFIA(dir = data_dir, common = FALSE)
+
 
 # indentify currrent volume evaulation years in the FIA database
 volume_evalids <- findEVALID(db, type = "VOL")
@@ -36,8 +61,8 @@ reference <- read.csv("Data/FIADB_REFERENCE/REF_RESEARCH_STATION.csv")
 
 
 # inspect loaded tables and available evaluation years
-print(names(db))
-db$POP_EVAL %>% select(EVALID, EVAL_DESCR, END_INVYR)
+#print(names(db))
+#db$POP_EVAL %>% select(EVALID, EVAL_DESCR, END_INVYR)
 
 
 # VOLCFNET & VOLCFGRS by County within a state
@@ -45,7 +70,7 @@ db$POP_EVAL %>% select(EVALID, EVAL_DESCR, END_INVYR)
 # calculates total volume by state and county
 
 volume_net <- volume(
-  db = db-volume,
+  db = db_volume,
   grpBy = c(STATECD, COUNTYCD),
   landType = "forest",
   treeType = "live",
@@ -54,7 +79,7 @@ volume_net <- volume(
 )
 
 volume_gross <- volume(
-  db = db-volume,
+  db = db_volume,
   grpBy = c(STATECD, COUNTYCD),
   landType = "forest",
   treeType = "live",
@@ -104,9 +129,9 @@ volume_county <- volume_county %>%
 #print(volume_county)
 
 # create the results/{statename} folder if it doesn't exist
-results_path <- paste0("Results/", gsub(" ", "_", state))
+results_path <- paste0("Results/", gsub(" ", "_", state_name))
 
-dir.create(results_path, showWarnings = FALSE)
+dir.create(results_path, recursive = TRUE, showWarnings = FALSE)
 
 # gather all data for the years available
 years <- sort(unique(volume_county$YEAR))
@@ -126,7 +151,7 @@ for (yr in years) {
   filename <- paste0(
     results_path,
     "/FIA_VOLCFNET_VOLCFGRS_",
-    gsub(" ", "_", state),
+    gsub(" ", "_", state_name),
     "_",
     yr,
     ".csv"
